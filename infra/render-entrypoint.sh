@@ -71,19 +71,19 @@ fi
 #   (saves ~160MB of thread stacks across the stack).
 # - CICompilerCount=2: Limits compiler threads per JVM.
 # -------------------------------------------------------------
-COMMON_JVM_OPTS="-XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:CICompilerCount=2 -Xss228k -XX:+ExitOnOutOfMemoryError"
+COMMON_JVM_OPTS="-XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:CICompilerCount=2 -Xss228k -XX:ReservedCodeCacheSize=8m -XX:MaxMetaspaceSize=48m -XX:+ExitOnOutOfMemoryError"
 COMMON_SPRING_OPTS="-Dserver.tomcat.threads.max=8 -Dserver.tomcat.threads.min-spare=2 -Dserver.tomcat.max-connections=20 -Dserver.tomcat.accept-count=10 -Dspring.data.redis.repositories.enabled=false -Djava.security.egd=file:/dev/./urandom"
 
-JVM_GATEWAY="-Xms12m -Xmx36m -XX:MaxMetaspaceSize=34m -XX:ReservedCodeCacheSize=10m $COMMON_JVM_OPTS"
-JVM_LIGHT="-Xms10m -Xmx28m -XX:MaxMetaspaceSize=28m -XX:ReservedCodeCacheSize=8m $COMMON_JVM_OPTS"
-JVM_WORKER="-Xms14m -Xmx34m -XX:MaxMetaspaceSize=32m -XX:ReservedCodeCacheSize=10m $COMMON_JVM_OPTS"
+JVM_GATEWAY="-Xms8m -Xmx20m $COMMON_JVM_OPTS"
+JVM_LIGHT="-Xms8m -Xmx20m $COMMON_JVM_OPTS"
+JVM_WORKER="-Xms12m -Xmx26m $COMMON_JVM_OPTS"
 
 # Helper function to wait for a port to be listening
 wait_for_port() {
     PORT_TO_CHECK=$1
     NAME=$2
-    for i in $(seq 1 45); do
-        if nc -z 127.0.0.1 "$PORT_TO_CHECK" 2>/dev/null; then
+    for i in $(seq 1 50); do
+        if nc -z 127.0.0.1 "$PORT_TO_CHECK" 2>/dev/null || curl -s -f -m 1 "http://127.0.0.1:$PORT_TO_CHECK/actuator/health" >/dev/null 2>&1; then
             echo "   [✓] $NAME is ready and listening on port :$PORT_TO_CHECK"
             return 0
         fi
