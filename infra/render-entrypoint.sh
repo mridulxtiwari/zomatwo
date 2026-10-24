@@ -15,7 +15,7 @@ export PAYMENT_SERVICE_URL="http://127.0.0.1:8084"
 export REALTIME_SERVICE_URL="http://127.0.0.1:8085"
 export CACHE_TYPE="simple"
 export KAFKA_ENABLED="false"
-export DB_POOL_MAX="3"
+export DB_POOL_MAX="2"
 export DB_POOL_MIN="1"
 
 # -------------------------------------------------------------
@@ -121,12 +121,13 @@ fi
 #   (saves ~160MB of thread stacks across the stack).
 # - CICompilerCount=2: Limits compiler threads per JVM.
 # -------------------------------------------------------------
-COMMON_JVM_OPTS="-XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:CICompilerCount=2 -Xss228k -XX:ReservedCodeCacheSize=8m -XX:MaxMetaspaceSize=48m -XX:+ExitOnOutOfMemoryError"
-COMMON_SPRING_OPTS="-Dserver.tomcat.threads.max=8 -Dserver.tomcat.threads.min-spare=2 -Dserver.tomcat.max-connections=20 -Dserver.tomcat.accept-count=10 -Dspring.data.redis.repositories.enabled=false -Djava.security.egd=file:/dev/./urandom -Dspring.flyway.baseline-version=0 -Dspring.flyway.baseline-on-migrate=true"
+COMMON_JVM_OPTS="-XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:CICompilerCount=2 -Xss200k -XX:ReservedCodeCacheSize=6m -XX:+ExitOnOutOfMemoryError"
+COMMON_SPRING_OPTS="-Dserver.tomcat.threads.max=4 -Dserver.tomcat.threads.min-spare=1 -Dserver.tomcat.max-connections=10 -Dserver.tomcat.accept-count=10 -Dspring.data.redis.repositories.enabled=false -Djava.security.egd=file:/dev/./urandom -Dspring.flyway.baseline-version=0 -Dspring.flyway.baseline-on-migrate=true -Dspring.jmx.enabled=false -Dspring.main.lazy-initialization=true -Dspring.jpa.open-in-view=false -Dspring.jpa.properties.hibernate.query.plan_cache_max_size=8 -Dspring.jpa.properties.hibernate.generate_statistics=false"
 
-JVM_GATEWAY="-Xms8m -Xmx20m $COMMON_JVM_OPTS"
-JVM_LIGHT="-Xms8m -Xmx20m $COMMON_JVM_OPTS"
-JVM_WORKER="-Xms12m -Xmx26m $COMMON_JVM_OPTS"
+JVM_GATEWAY="-Xms6m -Xmx14m -XX:MaxMetaspaceSize=32m -XX:MaxDirectMemorySize=12m -Dio.netty.allocator.type=unpooled -Dio.netty.noPreferDirect=true $COMMON_JVM_OPTS"
+JVM_LIGHT="-Xms6m -Xmx12m -XX:MaxMetaspaceSize=26m $COMMON_JVM_OPTS"
+JVM_WORKER="-Xms8m -Xmx16m -XX:MaxMetaspaceSize=36m $COMMON_JVM_OPTS"
+JVM_ORDER="-Xms8m -Xmx18m -XX:MaxMetaspaceSize=38m $COMMON_JVM_OPTS"
 
 # Helper function to wait for a port to be listening
 wait_for_port() {
@@ -135,11 +136,13 @@ wait_for_port() {
     for i in $(seq 1 90); do
         if nc -z 127.0.0.1 "$PORT_TO_CHECK" 2>/dev/null || curl -s -f -m 1 "http://127.0.0.1:$PORT_TO_CHECK/actuator/health" >/dev/null 2>&1; then
             echo "   [✓] $NAME is ready and listening on port :$PORT_TO_CHECK"
+            sleep 2
             return 0
         fi
         sleep 1
     done
     echo "   [!] $NAME did not report ready on :$PORT_TO_CHECK within timeout, proceeding..."
+    sleep 2
     return 0
 }
 
@@ -169,7 +172,7 @@ PID_CATALOG=$!
 wait_for_port 8082 "Catalog Service"
 
 echo "-> [4/6] Launching Order Service (:8083)..."
-PORT=8083 FLYWAY_TABLE=flyway_order_history java $JVM_WORKER $COMMON_SPRING_OPTS -jar /app/order-service.jar > /dev/stdout 2>&1 &
+PORT=8083 FLYWAY_TABLE=flyway_order_history java $JVM_ORDER $COMMON_SPRING_OPTS -jar /app/order-service.jar > /dev/stdout 2>&1 &
 PID_ORDER=$!
 wait_for_port 8083 "Order Service"
 
