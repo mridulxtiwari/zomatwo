@@ -1,0 +1,24 @@
+# ==============================================================
+# Frontend .dockerignore (React / Vite)
+# ==============================================================
+node_modules/
+dist/
+dist-ssr/
+.git/
+.gitignore
+
+# Environment & credentials
+.env.local
+.env.*.local
+
+# IDEs
+.idea/
+.vscode/
+
+# Logs & OS
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.DS_Store
+Thumbs.db

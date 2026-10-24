@@ -1,0 +1,29 @@
+# ==============================================================
+# Backend .dockerignore (Java / Maven Microservices)
+# ==============================================================
+**/target/
+target/
+*.class
+*.jar
+*.war
+*.original
+.mvn/.develocity/
+.mvn/timing.properties
+
+# Git & IDEs
+.git/
+.gitignore
+.idea/
+.vscode/
+*.iml
+.classpath
+.project
+.settings/
+
+# OS & Logs
+.DS_Store
+Thumbs.db
+*.log
+logs/
+*.tmp
+*.bak
