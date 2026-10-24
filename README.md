@@ -18,36 +18,44 @@ The system is designed for high concurrency, zero dual-write anomalies (via the 
 
 ## 🏛️ System Architecture
 
+```mermaid
+flowchart TD
+    Client["🌐 Client Applications<br/>(React 18 SPA • Web & Mobile)"]
+    Gateway["🛡️ Spring Cloud Gateway (:8080)<br/>Edge JWT Validation & Routing"]
+
+    Client -->|HTTPS REST & SSE Stream| Gateway
+
+    Gateway -->|/api/v1/auth| Identity["🔑 Identity Service (:8081)<br/>Auth & Address Management"]
+    Gateway -->|/api/v1/restaurants| Catalog["📖 Catalog Service (:8082)<br/>Geospatial Menus & Cache"]
+    Gateway -->|/api/v1/orders| Order["📦 Order Service (:8083)<br/>State Machine & Outbox"]
+    Gateway -->|/api/v1/payments| Payment["💳 Payment Service (:8084)<br/>Razorpay Integration"]
+    Gateway -->|/api/v1/stream| Realtime["⚡ Realtime Service (:8085)<br/>Live SSE Order Emitter"]
+
+    Identity --> IdDB[(PostgreSQL<br/>Identity DB)]
+    Catalog --> CatDB[(PostgreSQL<br/>Catalog DB)]
+    Catalog --> CatCache[(Redis Cache<br/>Menus)]
+    Order --> OrdDB[(PostgreSQL<br/>Order DB)]
+    Order -.->|Outbox Events| Kafka[(Apache Kafka<br/>order-events)]
+    Payment --> PayDB[(PostgreSQL<br/>Payment DB)]
+    Kafka -.->|Event Consumer| Realtime
+```
+
 ```text
-zomatwo/
-├── docker-compose.yml                # Multi-DB Postgres, Redis 7, Kafka (KRaft mode)
-├── infra/
-│   └── init-multiple-dbs.sh          # Creates zomato_identity_db, catalog_db, order_db, payment_db
-├── backend/
-│   ├── pom.xml                       # Root parent POM (Java 17+, Spring Boot 3.3.4, Spring Cloud 2023.0.3)
-│   ├── common-contracts/             # Shared Kafka Event records, Feign DTOs, Enums, RFC 7807 ProblemDetail
-│   ├── api-gateway/                  # Port 8080: Spring Cloud Gateway, Reactive JWT Filter, Redis Rate Limiter
-│   ├── identity-service/             # Port 8081: Auth, BCrypt, Hashed Token Rotation, Addresses
-│   ├── catalog-service/              # Port 8082: Geospatial Haversine Search, Menu CRUD, Redis Cache
-│   ├── order-service/                # Port 8083: Checkout Saga, Atomic Coupons, SKIP LOCKED Outbox Poller
-│   ├── payment-service/              # Port 8084: Razorpay SDK, Webhook HMAC Verification, Auto Refunds
-│   └── realtime-service/             # Port 8085: SseEmitter Registry, 15s Heartbeat, Redis Pub/Sub Fanout
-└── frontend/                         # React 18 + Vite + Tailwind CSS
-    ├── package.json                  # @tanstack/react-query, zustand, @microsoft/fetch-event-source, lucide-react, leaflet
-    └── src/
-        ├── api/                      # axiosClient.js (Queued 401 Refresh Lock), endpoints.js
-        ├── components/
-        │   ├── ui/                   # Button, Badge, Card, Input, Modal, Drawer, Toast, Stepper, LeafletMapPicker
-        │   ├── layout/               # Navbar, Footer, PartnerSidebar, ProtectedRoute, RoleGuard
-        │   └── modals/               # AddressModal, ReplaceCartModal, RejectOrderModal, StoryViewerModal
-        ├── features/
-        │   ├── auth/                 # LoginPage, RegisterPage, useAuthStore (Zustand)
-        │   ├── catalog/              # RestaurantDiscoveryPage (Grid & Map Views), RestaurantMenuPage, useRestaurants
-        │   ├── cart/                 # CartDrawer, CartItemRow, QuantityStepper, useCartStore (Zustand)
-        │   ├── checkout/             # CheckoutPage (AddressSection, PaymentSection, SummarySection), useRazorpayCheckout
-        │   └── orders/               # LiveOrderTrackingPage (SSE Stepper & Map), PartnerOrderDashboard, useOrderStream
-        ├── hooks/                    # useDebounce.js, useGeolocation.js
-        └── App.jsx                   # Central route configuration & layout wrapper
+Client Applications (Web & Mobile Browser)
+└── Spring Cloud Gateway (:8080)
+    ├── Identity Service (:8081) ────► PostgreSQL (Identity DB)
+    │
+    ├── Catalog Service (:8082) ─────► PostgreSQL (Catalog DB)
+    │                                └── Redis (Menu Cache)
+    │
+    ├── Order Service (:8083) ───────► PostgreSQL (Order DB)
+    │                                └── Apache Kafka (order-events outbox)
+    │
+    ├── Payment Service (:8084) ─────► PostgreSQL (Payment DB)
+    │                                └── Razorpay Gateway & Webhooks
+    │
+    └── Realtime Service (:8085) ◄─── Apache Kafka (order-events consumer)
+                                     └── Server-Sent Events (SSE Live Stream)
 ```
 
 ---
