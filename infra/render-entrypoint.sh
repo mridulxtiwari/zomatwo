@@ -130,51 +130,6 @@ JVM_LIGHT="-Xms6m -Xmx12m -XX:MaxMetaspaceSize=32m $COMMON_JVM_OPTS"
 JVM_WORKER="-Xms8m -Xmx18m -XX:MaxMetaspaceSize=52m $COMMON_JVM_OPTS"
 JVM_ORDER="-Xms8m -Xmx20m -XX:MaxMetaspaceSize=54m $COMMON_JVM_OPTS"
 
-# -------------------------------------------------------------
-# Strict Sequential Hand-off Function:
-# Polls the service's /actuator/health endpoint.
-# Only hands off to the next service when HTTP 200 (status: UP)
-# is confirmed, guaranteeing zero CPU or memory collision between startups.
-# -------------------------------------------------------------
-wait_for_service_ready() {
-    PORT_TO_CHECK=$1
-    NAME=$2
-    PID_TO_CHECK=$3
-    MAX_ATTEMPTS=${4:-120}
-
-    echo "   [i] Waiting for $NAME to fully initialize and give hand-off..."
-
-    for i in $(seq 1 "$MAX_ATTEMPTS"); do
-        # 1. Process liveness check: detect unexpected crashes immediately
-        if [ -n "$PID_TO_CHECK" ] && ! kill -0 "$PID_TO_CHECK" 2>/dev/null; then
-            echo "   [X] FATAL: $NAME (PID $PID_TO_CHECK) died during startup! Exiting..."
-            return 1
-        fi
-
-        # 2. Actuator health verification (Spring Boot true hand-off signal)
-        HEALTH_STATUS=$(curl -s -m 2 "http://127.0.0.1:$PORT_TO_CHECK/actuator/health" 2>/dev/null || true)
-        case "$HEALTH_STATUS" in
-            *\"status\":\"UP\"*|*\"status\":\ \"UP\"*)
-                echo "   [✓] $NAME is UP & HEALTHY! Hand-off confirmed on port :$PORT_TO_CHECK (took ${i}s)"
-                # Allow JIT compiler and memory to settle before launching next service
-                sleep 3
-                return 0
-                ;;
-        esac
-
-        sleep 1
-    done
-
-    # Fallback TCP check if Actuator took longer
-    if nc -z 127.0.0.1 "$PORT_TO_CHECK" 2>/dev/null; then
-        echo "   [!] $NAME listening on :$PORT_TO_CHECK (health endpoint delayed, proceeding with hand-off)"
-        sleep 3
-        return 0
-    fi
-
-    echo "   [X] FATAL: $NAME failed to report ready on :$PORT_TO_CHECK within ${MAX_ATTEMPTS}s!"
-    return 1
-}
 
 # -------------------------------------------------------------
 # MODE 1: Unified Single JVM Profile (Default for Render Free Tier)
@@ -188,13 +143,7 @@ if [ "$RUN_MODE" = "unified" ] && [ -f /app/unified-runner.jar ]; then
     JVM_UNIFIED="-Xms48m -Xmx160m -XX:+UseSerialGC -XX:CICompilerCount=2 -Xss256k -XX:MaxMetaspaceSize=72m -XX:ReservedCodeCacheSize=24m -XX:+ExitOnOutOfMemoryError"
     SPRING_UNIFIED_OPTS="-Dserver.port=${PORT} -Dserver.tomcat.threads.max=16 -Dserver.tomcat.threads.min-spare=2 -Dspring.main.allow-bean-definition-overriding=true -Dspring.data.redis.repositories.enabled=false -Djava.security.egd=file:/dev/./urandom -Dspring.jmx.enabled=false -Dspring.jpa.open-in-view=false"
 
-    java $JVM_UNIFIED $SPRING_UNIFIED_OPTS -jar /app/unified-runner.jar > /dev/stdout 2>&1 &
-    PID_UNIFIED=$!
-
-    wait_for_service_ready "${PORT}" "Unified Runner" "$PID_UNIFIED" 180 || exit 1
-
     TARGET_KEEP_ALIVE="${KEEP_ALIVE_URL:-$RENDER_EXTERNAL_URL}"
-    PID_KEEPALIVE=""
     if [ -n "$TARGET_KEEP_ALIVE" ]; then
         echo "-> Enabling automatic keep-alive self-ping for: $TARGET_KEEP_ALIVE (every 10m)"
         (
@@ -207,59 +156,43 @@ if [ "$RUN_MODE" = "unified" ] && [ -f /app/unified-runner.jar ]; then
                 fi
             done
         ) &
-        PID_KEEPALIVE=$!
     fi
 
-    trap 'kill -TERM $PID_UNIFIED $PID_KEEPALIVE 2>/dev/null' SIGINT SIGTERM
-
-    echo "=========================================================="
-    echo " Zomatwo Unified Runner is healthy & listening on port :${PORT}"
-    echo "=========================================================="
-    wait $PID_UNIFIED
-    exit $?
+    echo "-> Executing Unified Runner directly on port :${PORT}..."
+    exec java $JVM_UNIFIED $SPRING_UNIFIED_OPTS -jar /app/unified-runner.jar
 fi
 
 # -------------------------------------------------------------
 # MODE 2: Distributed Multi-Process Profile (RUN_MODE=distributed)
 # -------------------------------------------------------------
-# STEP 1: Launch API Gateway FIRST!
-# Render tests $PORT immediately. Starting the Gateway first binds
-# the public port within seconds, passing Render's port scan check!
-# -------------------------------------------------------------
 echo "-> [1/6] Launching API Gateway on Render public port :${PORT}..."
 PORT=${PORT} java $JVM_GATEWAY $COMMON_SPRING_OPTS -jar /app/api-gateway.jar > /dev/stdout 2>&1 &
 PID_GATEWAY=$!
-wait_for_service_ready "${PORT}" "API Gateway" "$PID_GATEWAY" || exit 1
+sleep 2
 
-# -------------------------------------------------------------
-# STEP 2-6: Launch downstream services strictly one-by-one
-# Each service must confirm health (hand-off) before the next launches.
-# Zero simultaneous CPU thrashing or peak JIT compilation memory spikes.
-# -------------------------------------------------------------
 echo "-> [2/6] Launching Identity Service (:8081)..."
 PORT=8081 FLYWAY_TABLE=flyway_identity_history java $JVM_WORKER $COMMON_SPRING_OPTS -jar /app/identity-service.jar > /dev/stdout 2>&1 &
 PID_IDENTITY=$!
-wait_for_service_ready 8081 "Identity Service" "$PID_IDENTITY" || exit 1
+sleep 2
 
 echo "-> [3/6] Launching Catalog Service (:8082)..."
 PORT=8082 FLYWAY_TABLE=flyway_catalog_history java $JVM_WORKER $COMMON_SPRING_OPTS -jar /app/catalog-service.jar > /dev/stdout 2>&1 &
 PID_CATALOG=$!
-wait_for_service_ready 8082 "Catalog Service" "$PID_CATALOG" || exit 1
+sleep 2
 
 echo "-> [4/6] Launching Order Service (:8083)..."
 PORT=8083 FLYWAY_TABLE=flyway_order_history java $JVM_ORDER $COMMON_SPRING_OPTS -jar /app/order-service.jar > /dev/stdout 2>&1 &
 PID_ORDER=$!
-wait_for_service_ready 8083 "Order Service" "$PID_ORDER" || exit 1
+sleep 2
 
 echo "-> [5/6] Launching Payment Service (:8084)..."
 PORT=8084 FLYWAY_TABLE=flyway_payment_history java $JVM_WORKER $COMMON_SPRING_OPTS -jar /app/payment-service.jar > /dev/stdout 2>&1 &
 PID_PAYMENT=$!
-wait_for_service_ready 8084 "Payment Service" "$PID_PAYMENT" || exit 1
+sleep 2
 
 echo "-> [6/6] Launching Realtime SSE Service (:8085)..."
 PORT=8085 java $JVM_LIGHT $COMMON_SPRING_OPTS -jar /app/realtime-service.jar > /dev/stdout 2>&1 &
 PID_REALTIME=$!
-wait_for_service_ready 8085 "Realtime Service" "$PID_REALTIME" || exit 1
 
 # -------------------------------------------------------------
 # STEP 7: Background Keep-Alive Ping Loop (Prevents 15m Render Free Sleep)
