@@ -124,16 +124,21 @@ fi
 COMMON_JVM_OPTS="-XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:CICompilerCount=2 -Xss200k -XX:ReservedCodeCacheSize=6m -XX:+ExitOnOutOfMemoryError"
 COMMON_SPRING_OPTS="-Dserver.tomcat.threads.max=4 -Dserver.tomcat.threads.min-spare=1 -Dserver.tomcat.max-connections=10 -Dserver.tomcat.accept-count=10 -Dspring.data.redis.repositories.enabled=false -Djava.security.egd=file:/dev/./urandom -Dspring.flyway.baseline-version=0 -Dspring.flyway.baseline-on-migrate=true -Dspring.jmx.enabled=false -Dspring.main.lazy-initialization=true -Dspring.jpa.open-in-view=false -Dspring.jpa.properties.hibernate.query.plan_cache_max_size=8 -Dspring.jpa.properties.hibernate.generate_statistics=false"
 
-JVM_GATEWAY="-Xms6m -Xmx14m -XX:MaxMetaspaceSize=32m -XX:MaxDirectMemorySize=12m -Dio.netty.allocator.type=unpooled -Dio.netty.noPreferDirect=true $COMMON_JVM_OPTS"
-JVM_LIGHT="-Xms6m -Xmx12m -XX:MaxMetaspaceSize=26m $COMMON_JVM_OPTS"
-JVM_WORKER="-Xms8m -Xmx16m -XX:MaxMetaspaceSize=36m $COMMON_JVM_OPTS"
-JVM_ORDER="-Xms8m -Xmx18m -XX:MaxMetaspaceSize=38m $COMMON_JVM_OPTS"
+JVM_GATEWAY="-Xms6m -Xmx14m -XX:MaxMetaspaceSize=36m -XX:MaxDirectMemorySize=12m -Dio.netty.allocator.type=unpooled -Dio.netty.noPreferDirect=true $COMMON_JVM_OPTS"
+JVM_LIGHT="-Xms6m -Xmx12m -XX:MaxMetaspaceSize=32m $COMMON_JVM_OPTS"
+JVM_WORKER="-Xms8m -Xmx18m -XX:MaxMetaspaceSize=52m $COMMON_JVM_OPTS"
+JVM_ORDER="-Xms8m -Xmx20m -XX:MaxMetaspaceSize=54m $COMMON_JVM_OPTS"
 
 # Helper function to wait for a port to be listening
 wait_for_port() {
     PORT_TO_CHECK=$1
     NAME=$2
+    PID_TO_CHECK=$3
     for i in $(seq 1 90); do
+        if [ -n "$PID_TO_CHECK" ] && ! kill -0 "$PID_TO_CHECK" 2>/dev/null; then
+            echo "   [X] FATAL: $NAME (PID $PID_TO_CHECK) exited unexpectedly! Check logs above."
+            return 1
+        fi
         if nc -z 127.0.0.1 "$PORT_TO_CHECK" 2>/dev/null || curl -s -f -m 1 "http://127.0.0.1:$PORT_TO_CHECK/actuator/health" >/dev/null 2>&1; then
             echo "   [✓] $NAME is ready and listening on port :$PORT_TO_CHECK"
             sleep 2
@@ -154,7 +159,7 @@ wait_for_port() {
 echo "-> [1/6] Launching API Gateway on Render public port :${PORT}..."
 PORT=${PORT} java $JVM_GATEWAY $COMMON_SPRING_OPTS -jar /app/api-gateway.jar > /dev/stdout 2>&1 &
 PID_GATEWAY=$!
-wait_for_port "${PORT}" "API Gateway"
+wait_for_port "${PORT}" "API Gateway" "$PID_GATEWAY"
 
 # -------------------------------------------------------------
 # STEP 2-6: Launch downstream services sequentially
@@ -164,27 +169,27 @@ wait_for_port "${PORT}" "API Gateway"
 echo "-> [2/6] Launching Identity Service (:8081)..."
 PORT=8081 FLYWAY_TABLE=flyway_identity_history java $JVM_WORKER $COMMON_SPRING_OPTS -jar /app/identity-service.jar > /dev/stdout 2>&1 &
 PID_IDENTITY=$!
-wait_for_port 8081 "Identity Service"
+wait_for_port 8081 "Identity Service" "$PID_IDENTITY"
 
 echo "-> [3/6] Launching Catalog Service (:8082)..."
 PORT=8082 FLYWAY_TABLE=flyway_catalog_history java $JVM_WORKER $COMMON_SPRING_OPTS -jar /app/catalog-service.jar > /dev/stdout 2>&1 &
 PID_CATALOG=$!
-wait_for_port 8082 "Catalog Service"
+wait_for_port 8082 "Catalog Service" "$PID_CATALOG"
 
 echo "-> [4/6] Launching Order Service (:8083)..."
 PORT=8083 FLYWAY_TABLE=flyway_order_history java $JVM_ORDER $COMMON_SPRING_OPTS -jar /app/order-service.jar > /dev/stdout 2>&1 &
 PID_ORDER=$!
-wait_for_port 8083 "Order Service"
+wait_for_port 8083 "Order Service" "$PID_ORDER"
 
 echo "-> [5/6] Launching Payment Service (:8084)..."
 PORT=8084 FLYWAY_TABLE=flyway_payment_history java $JVM_WORKER $COMMON_SPRING_OPTS -jar /app/payment-service.jar > /dev/stdout 2>&1 &
 PID_PAYMENT=$!
-wait_for_port 8084 "Payment Service"
+wait_for_port 8084 "Payment Service" "$PID_PAYMENT"
 
 echo "-> [6/6] Launching Realtime SSE Service (:8085)..."
 PORT=8085 java $JVM_LIGHT $COMMON_SPRING_OPTS -jar /app/realtime-service.jar > /dev/stdout 2>&1 &
 PID_REALTIME=$!
-wait_for_port 8085 "Realtime Service"
+wait_for_port 8085 "Realtime Service" "$PID_REALTIME"
 
 # -------------------------------------------------------------
 # STEP 7: Background Keep-Alive Ping Loop (Prevents 15m Render Free Sleep)
