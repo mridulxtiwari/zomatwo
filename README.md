@@ -16,52 +16,38 @@ The system is designed for high concurrency, zero dual-write anomalies (via the 
 
 ---
 
-## 🏛️ System Architecture Topology
+## 🏛️ System Architecture
 
-```mermaid
-flowchart TD
-    Client["User Client<br/>(Web & Mobile Browser)"]
-
-    subgraph Edge["API Gateway Layer"]
-        Gateway["Spring Cloud Gateway (:8080)<br/>Edge JWT Validation & Routing"]
-    end
-
-    subgraph Core["Microservices Tier"]
-        Identity["Identity Service (:8081)<br/>Auth & Address Mgmt"]
-        Catalog["Catalog Service (:8082)<br/>Geospatial Menus & Caching"]
-        Order["Order Service (:8083)<br/>Order State Machine & Outbox"]
-        Payment["Payment Service (:8084)<br/>Razorpay Intent & Refunds"]
-        Realtime["Realtime Service (:8085)<br/>Live SSE Emitters"]
-    end
-
-    subgraph Broker["Event Streaming"]
-        Kafka["Apache Kafka<br/>order-events topic"]
-    end
-
-    subgraph Storage["Database Persistence"]
-        IdDB[(Identity DB)]
-        CatDB[(Catalog DB)]
-        OrdDB[(Order DB)]
-        PayDB[(Payment DB)]
-    end
-
-    Client -->|HTTPS REST| Gateway
-    Client -->|SSE Live Stream| Gateway
-
-    Gateway -->|/api/v1/auth| Identity
-    Gateway -->|/api/v1/restaurants| Catalog
-    Gateway -->|/api/v1/orders| Order
-    Gateway -->|/api/v1/payments| Payment
-    Gateway -->|/api/v1/stream| Realtime
-
-    Order -.->|Outbox Events| Kafka
-    Payment -.->|Payment Events| Kafka
-    Kafka -.->|Event Consumer| Realtime
-
-    Identity --> IdDB
-    Catalog --> CatDB
-    Order --> OrdDB
-    Payment --> PayDB
+```text
+zomatwo/
+├── docker-compose.yml                # Local infrastructure: PostgreSQL, Redis 7, Kafka (KRaft mode)
+├── Dockerfile                        # Multi-stage production container
+├── infra/
+│   ├── init-multiple-dbs.sh          # PostgreSQL multi-database initialization script
+│   └── render-entrypoint.sh          # Container runtime & JVM memory tuning
+├── backend/
+│   ├── pom.xml                       # Maven parent POM (Spring Boot 3.3.4, Java 17+)
+│   ├── common-contracts/             # Shared DTOs, Kafka event records, Feign interfaces & enums
+│   ├── api-gateway/                  # Port 8080: Spring Cloud Gateway, JWT filter, routing & CORS
+│   ├── identity-service/             # Port 8081: Authentication, JWT rotation & address management
+│   ├── catalog-service/              # Port 8082: Geospatial restaurant discovery, menus & Redis cache
+│   ├── order-service/                # Port 8083: Order state machine, coupons & transactional outbox
+│   ├── payment-service/              # Port 8084: Razorpay integration, webhook verification & refunds
+│   └── realtime-service/             # Port 8085: Server-Sent Events (SSE) live order tracking stream
+└── frontend/                         # React 18 + Vite 5 + Tailwind CSS SPA
+    ├── package.json
+    └── src/
+        ├── api/                      # Axios client with token refresh interceptor & API endpoints
+        ├── components/               # Navbar & global modals (Address, Cart conflict, Story viewer)
+        ├── features/
+        │   ├── auth/                 # Login, Register & Zustand auth store
+        │   ├── catalog/              # Restaurant discovery, filters & restaurant menu page
+        │   ├── cart/                 # Cart drawer, item stepper & Zustand cart store
+        │   ├── checkout/             # Multi-address checkout & Razorpay payment integration
+        │   ├── partner/              # Restaurant owner live kitchen terminal
+        │   └── tracking/             # Live order tracking with real-time SSE stream & visual stepper
+        ├── App.jsx                   # Central route configuration & layout wrapper
+        └── main.jsx                  # React DOM root & TanStack Query client provider
 ```
 
 ---
