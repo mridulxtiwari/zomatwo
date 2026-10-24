@@ -82,6 +82,13 @@ export default function PartnerOrderDashboard() {
   useEffect(() => {
     const fetchActiveOrders = async () => {
       try {
+        const authStorage = localStorage.getItem('zomatwo-auth-storage');
+        const token = authStorage ? JSON.parse(authStorage)?.state?.accessToken : null;
+        if (!token || token.startsWith('demo_')) {
+          // Unauthenticated or local demo preview - continue with local state
+          return;
+        }
+
         const res = await axiosClient.get('/partner/restaurants/101/orders');
         if (Array.isArray(res.data) && res.data.length > 0) {
           const apiOrders = res.data.map((o) => ({
@@ -122,9 +129,13 @@ export default function PartnerOrderDashboard() {
 
   const handleUpdateStatus = async (orderId, targetStatus) => {
     try {
-      await axiosClient.put(ENDPOINTS.ORDERS.PARTNER_ORDER_STATUS(orderId), {
-        status: targetStatus,
-      });
+      const authStorage = localStorage.getItem('zomatwo-auth-storage');
+      const token = authStorage ? JSON.parse(authStorage)?.state?.accessToken : null;
+      if (token && !token.startsWith('demo_')) {
+        await axiosClient.put(ENDPOINTS.ORDERS.PARTNER_ORDER_STATUS(orderId), {
+          status: targetStatus,
+        });
+      }
     } catch (e) {
       console.warn('Backend status update call fallback; applying optimistic local state:', e);
     }
