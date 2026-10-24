@@ -1,0 +1,38 @@
+name: Render Keep-Alive Cron
+
+on:
+  schedule:
+    # Runs every 10 minutes (Render Free Tier spins down after 15 minutes of inactivity)
+    - cron: '*/10 * * * *'
+  workflow_dispatch: # Allows manual trigger anytime from GitHub Actions tab
+
+jobs:
+  ping-services:
+    name: Ping Services
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Backend Web Service
+        run: |
+          BACKEND_URL="${{ secrets.RENDER_BACKEND_URL || 'https://zomatwo-backend.onrender.com' }}"
+          echo "Pinging Backend: ${BACKEND_URL}/actuator/health"
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -m 30 "${BACKEND_URL}/actuator/health" || echo "000")
+          echo "Backend Health Check HTTP Status: $HTTP_STATUS"
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "✅ Backend is active and healthy!"
+          elif [ "$HTTP_STATUS" = "000" ]; then
+            echo "⚠️ Backend request timed out (cold start in progress)"
+          else
+            echo "ℹ️ Backend responded with HTTP $HTTP_STATUS"
+          fi
+
+      - name: Ping Frontend Static Site
+        run: |
+          FRONTEND_URL="${{ secrets.RENDER_FRONTEND_URL || 'https://zomatwo-frontend.onrender.com' }}"
+          echo "Pinging Frontend: ${FRONTEND_URL}"
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -m 30 "${FRONTEND_URL}" || echo "000")
+          echo "Frontend HTTP Status: $HTTP_STATUS"
+          if [ "$HTTP_STATUS" = "200" ]; then
+            echo "✅ Frontend is active!"
+          else
+            echo "ℹ️ Frontend responded with HTTP $HTTP_STATUS"
+          fi

@@ -133,8 +133,30 @@ PORT=8085 java $JVM_LIGHT $COMMON_SPRING_OPTS -jar /app/realtime-service.jar > /
 PID_REALTIME=$!
 wait_for_port 8085 "Realtime Service"
 
+# -------------------------------------------------------------
+# STEP 7: Background Keep-Alive Ping Loop (Prevents 15m Render Free Sleep)
+# Automatically pings the public URL every 10 minutes from the outside.
+# Uses RENDER_EXTERNAL_URL (auto-set by Render) or KEEP_ALIVE_URL.
+# -------------------------------------------------------------
+TARGET_KEEP_ALIVE="${KEEP_ALIVE_URL:-$RENDER_EXTERNAL_URL}"
+PID_KEEPALIVE=""
+if [ -n "$TARGET_KEEP_ALIVE" ]; then
+    echo "-> Enabling automatic keep-alive self-ping for: $TARGET_KEEP_ALIVE (every 10m)"
+    (
+        while true; do
+            sleep 600
+            echo "[$(date -u +'%Y-%m-%d %H:%M:%SZ')] [Keep-Alive] Pinging $TARGET_KEEP_ALIVE to maintain active state..."
+            curl -s -f -m 15 "${TARGET_KEEP_ALIVE}/actuator/health" > /dev/null 2>&1 || true
+            if [ -n "$FRONTEND_URL" ]; then
+                curl -s -f -m 15 "$FRONTEND_URL" > /dev/null 2>&1 || true
+            fi
+        done
+    ) &
+    PID_KEEPALIVE=$!
+fi
+
 # Trap signals for graceful shutdown
-trap 'kill -TERM $PID_GATEWAY $PID_IDENTITY $PID_CATALOG $PID_ORDER $PID_PAYMENT $PID_REALTIME' SIGINT SIGTERM
+trap 'kill -TERM $PID_GATEWAY $PID_IDENTITY $PID_CATALOG $PID_ORDER $PID_PAYMENT $PID_REALTIME $PID_KEEPALIVE 2>/dev/null' SIGINT SIGTERM
 
 echo "=========================================================="
 echo " All Zomatwo microservices running on single free DB!"

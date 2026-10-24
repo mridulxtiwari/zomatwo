@@ -106,3 +106,27 @@ git push origin main
    - Explore restaurants across Pune neighborhoods.
    - Register or Sign In with customer/partner credentials.
    - Add dishes to cart and test the checkout flow.
+
+---
+
+## ⏰ 24/7 Keep-Alive Cron Automation (Prevent Free Tier Sleep)
+
+Render's Free Tier web services automatically spin down (sleep) after 15 minutes of inactivity. To keep your frontend and backend permanently active with zero cold-start delay, two layers of automated cron jobs are implemented:
+
+### 1. GitHub Actions Scheduled Cron (`.github/workflows/keep-alive.yml`)
+Runs every 10 minutes automatically using GitHub's free runners:
+- Pings the Backend API health check: `https://zomatwo-backend.onrender.com/actuator/health`
+- Pings the Frontend Static site: `https://zomatwo-frontend.onrender.com`
+- **Custom URLs**: If your Render services use different names, set Repository Secrets in GitHub:
+  - `RENDER_BACKEND_URL`: `https://your-backend-name.onrender.com`
+  - `RENDER_FRONTEND_URL`: `https://your-frontend-name.onrender.com`
+
+### 2. Container Self-Ping Loop (`infra/render-entrypoint.sh`)
+When running on Render, the entrypoint script automatically detects `RENDER_EXTERNAL_URL` and starts a background daemon that sends a lightweight HTTP ping every 10 minutes.
+
+### 3. Alternative: External Web Cron (Zero-Setup)
+You can also use a free external monitoring tool like [cron-job.org](https://cron-job.org) or [UptimeRobot](https://uptimerobot.com):
+- **Target URL**: `https://zomatwo-backend.onrender.com/actuator/health`
+- **Schedule**: Every 10 minutes
+- **Method**: `GET`
+
