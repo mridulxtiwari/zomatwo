@@ -9,49 +9,46 @@
 [![Kafka](https://img.shields.io/badge/Apache%20Kafka-3.8%20(KRaft)-black.svg?logo=apachekafka)](https://kafka.apache.org/)
 [![Redis](https://img.shields.io/badge/Redis-7.4-DC382D.svg?logo=redis)](https://redis.io/)
 [![Docker](https://img.shields.io/badge/Docker-Enabled-2496ED.svg?logo=docker)](https://www.docker.com/)
-[![Render](https://img.shields.io/badge/Render-Deploy%20Ready-46E3B7.svg?logo=render)](https://render.com)
 
 **Zomatwo** is an enterprise-grade, distributed food-delivery platform inspired by modern on-demand food networks. It is built with **Spring Boot 3.3+ Microservices, Spring Cloud Gateway, Apache Kafka, PostgreSQL, Redis, and React 18+ (Vite + Tailwind CSS)**.
 
-The system is designed for high concurrency, zero dual-write anomalies (via the **Transactional Outbox Pattern**), real-time order tracking via **Server-Sent Events (SSE)**, strict **Role-Based Access Control (RBAC)**, and cloud deployment on **Render** (supporting both single-database free tiers and multi-service private network architectures).
+The system is designed for high concurrency, zero dual-write anomalies (via the **Transactional Outbox Pattern**), real-time order tracking via **Server-Sent Events (SSE)**, and strict **Role-Based Access Control (RBAC)**.
 
 ---
 
 ## 🏛️ System Architecture Topology
 
 ```text
-                                  [ User Browser / Mobile ]
-                                              │
-                    ┌─────────────────────────┴─────────────────────────┐
-                    │                                                   │
-                    ▼ (HTTPS)                                           ▼ (API / SSE Stream)
-        ┌────────────────────────┐                          ┌────────────────────────┐
-        │    React 18+ SPA       │                          │  Spring Cloud Gateway  │
-        │ - Customer Discovery   │                          │      (Port 8080)       │
-        │ - Partner Kitchen View │                          │ - Edge JWT Validation  │
-        │ - Zustand + TanStack   │                          │ - Route Forwarding     │
-        └────────────────────────┘                          │ - CORS / Rate Limiting │
-                                                            └───────────┬────────────┘
-                                                                        │
-        ┌───────────────────┬───────────────────┬───────────────────────┼───────────────────┐
-        ▼ (REST)            ▼ (REST)            ▼ (REST)                ▼ (REST)            ▼ (SSE)
-┌───────────────┐   ┌───────────────┐   ┌───────────────┐       ┌───────────────┐   ┌───────────────┐
-│Identity Svc   │   │Catalog Svc    │   │Order Svc      │       │Payment Svc    │   │Realtime Svc   │
-│  (Port 8081)  │   │  (Port 8082)  │   │  (Port 8083)  │       │  (Port 8084)  │   │  (Port 8085)  │
-│ - JWT Issuance│   │ - Geospatial  │   │ - State Mach. │       │ - Razorpay SDK│   │ - SseEmitter  │
-│ - Refresh Hash│   │ - Menus & CRUD│   │ - Outbox Poll │       │ - Refunds     │   │ - 15s Heartbt │
-│ - Addresses   │   │ - Cache Layer │   │ - Coupons     │       │ - Webhooks    │   │ - Order Stream│
-└───────┬───────┘   └───────┬───────┘   └───────┬───────┘       └───────┬───────┘   └───────┬───────┘
-        │                   │                   │                       │                   │
-        │                   │                   ▼ (Kafka / Outbox)      ▼ (Kafka)           ▲ (Events)
-        │                   │           ┌───────────────────────────────────────┐           │
-        │                   │           │     Apache Kafka (order-events)       ├───────────┘
-        │                   │           └───────────────────────────────────────┘
-        ▼                   ▼                   ▼                       ▼
-┌───────────────┐   ┌───────────────┐   ┌───────────────┐       ┌───────────────┐
-│  Identity DB  │   │  Catalog DB   │   │   Order DB    │       │  Payment DB   │
-│ (PostgreSQL)  │   │ (PostgreSQL)  │   │ (PostgreSQL)  │       │ (PostgreSQL)  │
-└───────────────┘   └───────────────┘   └───────────────┘       └───────────────┘
+                     ┌─────────────────────────────────────────┐
+                     │        User Browser / Mobile App        │
+                     │  (React 18+ SPA • Customer & Partner)   │
+                     └────────────────────┬────────────────────┘
+                                          │
+                                          ▼ HTTPS (REST / SSE)
+                     ┌─────────────────────────────────────────┐
+                     │          Spring Cloud Gateway           │
+                     │               (Port 8080)               │
+                     │   • Edge JWT Validation • CORS Routing  │
+                     └────────────────────┬────────────────────┘
+                                          │
+        ┌───────────────────┬───────────────────┼───────────────────┬───────────────────┐
+        ▼ (REST)            ▼ (REST)            ▼ (REST)            ▼ (REST)            ▼ (SSE)
+┌───────────────┐   ┌───────────────┐   ┌───────────────┐   ┌───────────────┐   ┌───────────────┐
+│ Identity Svc  │   │  Catalog Svc  │   │   Order Svc   │   │  Payment Svc  │   │ Realtime Svc  │
+│  (Port 8081)  │   │  (Port 8082)  │   │  (Port 8083)  │   │  (Port 8084)  │   │  (Port 8085)  │
+│• JWT Issuance │   │• Menus & CRUD │   │• State Mach.  │   │• Razorpay SDK │   │• SseEmitter   │
+│• Addresses    │   │• Redis Cache  │   │• Outbox Poll  │   │• Auto Refunds │   │• 15s Heartbeat│
+└───────┬───────┘   └───────┬───────┘   └───────┬───────┘   └───────┬───────┘   └───────▲───────┘
+        │                   │                   │                   │                   │
+        ▼                   ▼                   ▼                   ▼                   │
+┌───────────────┐   ┌───────────────┐   ┌───────────────┐   ┌───────────────┐           │
+│  Identity DB  │   │  Catalog DB   │   │   Order DB    │   │  Payment DB   │           │
+│ (PostgreSQL)  │   │ (PostgreSQL)  │   │ (PostgreSQL)  │   │ (PostgreSQL)  │           │
+└───────────────┘   └───────────────┘   └───────┬───────┘   └───────┬───────┘           │
+                                                │ (Outbox)          │ (Events)          │ (Live Stream)
+                                        ┌───────┴───────────────────┴───────┐           │
+                                        │    Apache Kafka (order-events)    ├───────────┘
+                                        └───────────────────────────────────┘
 ```
 
 ---
@@ -85,8 +82,8 @@ The system is designed for high concurrency, zero dual-write anomalies (via the 
 
 ### 🛡️ Enterprise Engineering Patterns
 - **Transactional Outbox Pattern**: Order state events are written atomically with business data in a single database transaction, then published asynchronously to avoid dual-write bugs.
-- **Zero-Collision Shared Database Architecture**: All microservices can either run on individual databases or share a single cloud PostgreSQL instance without table name or migration conflicts.
-- **Memory-Tuned Containerization**: JVM processes configured with SerialGC (`-XX:+UseSerialGC`) and bounded heaps, allowing all 6 services to co-exist within 512MB RAM on free cloud instances.
+- **Zero-Collision Shared Database Architecture**: All microservices can either run on individual databases or share a single PostgreSQL instance with isolated migration history tables (`flyway_*_history`).
+- **Resource-Optimized Containerization**: JVM processes configured with SerialGC (`-XX:+UseSerialGC`) and bounded heaps for minimal native overhead and fast container startup.
 
 ---
 
@@ -166,18 +163,6 @@ Open your browser at `http://localhost:5173`.
 
 ---
 
-## 🌐 Deploying on Render (Free Tier Optimized)
-
-This project includes complete Infrastructure-as-Code for deployment on [Render](https://render.com):
-
-1. **All-in-One Multi-Service Container** ([`Dockerfile`](./Dockerfile)): Packages the API Gateway and all microservices into a single container that runs within Render's free 512MB RAM tier.
-2. **Single Free Database Support**: Automatically parses Render's `DATABASE_URL`, extracts credentials, converts to JDBC format (`jdbc:postgresql://...`), and runs Flyway migrations using isolated history tables.
-3. **1-Click Render Blueprint** ([`render.yaml`](./render.yaml)): Provisions your web service and static site with all environment variables pre-configured.
-
-📖 **Detailed step-by-step instructions can be found in [`RENDER_DEPLOYMENT.md`](./RENDER_DEPLOYMENT.md).**
-
----
-
 ## 🔑 Default Seeded Credentials
 
 When database migrations run, sample accounts are automatically available for testing:
@@ -187,23 +172,6 @@ When database migrations run, sample accounts are automatically available for te
 | **Customer** | `raj.patel@example.com` | `Password123!` | Discovery, Cart, Checkout, Order Tracking |
 | **Partner (Owner)** | `chef.anand@biryaniproject.com` | `Password123!` | Kitchen Live Terminal (`/partner/orders`) |
 | **Admin** | `admin@zomatwo.com` | `Admin123!` | Full System Access |
-
----
-
-## 📜 Environment Variables Reference
-
-| Variable | Default Value | Description |
-|---|---|---|
-| `PORT` | `8080` | Port bound by the API Gateway or Render Web Service |
-| `DATABASE_URL` | `postgresql://...` | Connection string to your PostgreSQL instance |
-| `DB_USERNAME` | `postgres` | Database username |
-| `DB_PASSWORD` | `root` | Database password |
-| `JWT_SECRET` | `404E6352...` | 256-bit HMAC secret key for token signing |
-| `CACHE_TYPE` | `simple` | `simple` for in-memory caching; `redis` for external Redis |
-| `KAFKA_ENABLED` | `false` | `false` for cloud zero-broker mode; `true` for Kafka |
-| `DB_POOL_MAX` | `3` | Maximum connections per service (protects Render free DB limit) |
-| `FRONTEND_URL` | `http://localhost:5173` | Allowed CORS origin for frontend requests |
-| `VITE_API_BASE_URL` | `http://localhost:8080/api/v1` | Frontend API endpoint pointing to Gateway |
 
 ---
 
