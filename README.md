@@ -20,34 +20,34 @@ The system is designed for high concurrency, zero dual-write anomalies (via the 
 
 ```text
 zomatwo/
-├── docker-compose.yml                # Local infrastructure: PostgreSQL, Redis 7, Kafka (KRaft mode)
-├── Dockerfile                        # Multi-stage production container
+├── docker-compose.yml                # Multi-DB Postgres, Redis 7, Kafka (KRaft mode)
 ├── infra/
-│   ├── init-multiple-dbs.sh          # PostgreSQL multi-database initialization script
-│   └── render-entrypoint.sh          # Container runtime & JVM memory tuning
+│   └── init-multiple-dbs.sh          # Creates zomato_identity_db, catalog_db, order_db, payment_db
 ├── backend/
-│   ├── pom.xml                       # Maven parent POM (Spring Boot 3.3.4, Java 17+)
-│   ├── common-contracts/             # Shared DTOs, Kafka event records, Feign interfaces & enums
-│   ├── api-gateway/                  # Port 8080: Spring Cloud Gateway, JWT filter, routing & CORS
-│   ├── identity-service/             # Port 8081: Authentication, JWT rotation & address management
-│   ├── catalog-service/              # Port 8082: Geospatial restaurant discovery, menus & Redis cache
-│   ├── order-service/                # Port 8083: Order state machine, coupons & transactional outbox
-│   ├── payment-service/              # Port 8084: Razorpay integration, webhook verification & refunds
-│   └── realtime-service/             # Port 8085: Server-Sent Events (SSE) live order tracking stream
-└── frontend/                         # React 18 + Vite 5 + Tailwind CSS SPA
-    ├── package.json
+│   ├── pom.xml                       # Root parent POM (Java 17+, Spring Boot 3.3.4, Spring Cloud 2023.0.3)
+│   ├── common-contracts/             # Shared Kafka Event records, Feign DTOs, Enums, RFC 7807 ProblemDetail
+│   ├── api-gateway/                  # Port 8080: Spring Cloud Gateway, Reactive JWT Filter, Redis Rate Limiter
+│   ├── identity-service/             # Port 8081: Auth, BCrypt, Hashed Token Rotation, Addresses
+│   ├── catalog-service/              # Port 8082: Geospatial Haversine Search, Menu CRUD, Redis Cache
+│   ├── order-service/                # Port 8083: Checkout Saga, Atomic Coupons, SKIP LOCKED Outbox Poller
+│   ├── payment-service/              # Port 8084: Razorpay SDK, Webhook HMAC Verification, Auto Refunds
+│   └── realtime-service/             # Port 8085: SseEmitter Registry, 15s Heartbeat, Redis Pub/Sub Fanout
+└── frontend/                         # React 18 + Vite + Tailwind CSS
+    ├── package.json                  # @tanstack/react-query, zustand, @microsoft/fetch-event-source, lucide-react, leaflet
     └── src/
-        ├── api/                      # Axios client with token refresh interceptor & API endpoints
-        ├── components/               # Navbar & global modals (Address, Cart conflict, Story viewer)
+        ├── api/                      # axiosClient.js (Queued 401 Refresh Lock), endpoints.js
+        ├── components/
+        │   ├── ui/                   # Button, Badge, Card, Input, Modal, Drawer, Toast, Stepper, LeafletMapPicker
+        │   ├── layout/               # Navbar, Footer, PartnerSidebar, ProtectedRoute, RoleGuard
+        │   └── modals/               # AddressModal, ReplaceCartModal, RejectOrderModal, StoryViewerModal
         ├── features/
-        │   ├── auth/                 # Login, Register & Zustand auth store
-        │   ├── catalog/              # Restaurant discovery, filters & restaurant menu page
-        │   ├── cart/                 # Cart drawer, item stepper & Zustand cart store
-        │   ├── checkout/             # Multi-address checkout & Razorpay payment integration
-        │   ├── partner/              # Restaurant owner live kitchen terminal
-        │   └── tracking/             # Live order tracking with real-time SSE stream & visual stepper
-        ├── App.jsx                   # Central route configuration & layout wrapper
-        └── main.jsx                  # React DOM root & TanStack Query client provider
+        │   ├── auth/                 # LoginPage, RegisterPage, useAuthStore (Zustand)
+        │   ├── catalog/              # RestaurantDiscoveryPage (Grid & Map Views), RestaurantMenuPage, useRestaurants
+        │   ├── cart/                 # CartDrawer, CartItemRow, QuantityStepper, useCartStore (Zustand)
+        │   ├── checkout/             # CheckoutPage (AddressSection, PaymentSection, SummarySection), useRazorpayCheckout
+        │   └── orders/               # LiveOrderTrackingPage (SSE Stepper & Map), PartnerOrderDashboard, useOrderStream
+        ├── hooks/                    # useDebounce.js, useGeolocation.js
+        └── App.jsx                   # Central route configuration & layout wrapper
 ```
 
 ---
