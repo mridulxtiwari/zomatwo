@@ -186,7 +186,7 @@ if [ "$RUN_MODE" = "unified" ] && [ -f /app/unified-runner.jar ]; then
     echo " Port: :${PORT} | Memory Target: ~110MB RAM | Metaspace: 64MB"
     echo "=========================================================="
     JVM_UNIFIED="-Xms32m -Xmx96m -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:CICompilerCount=2 -Xss256k -XX:MaxMetaspaceSize=64m -XX:ReservedCodeCacheSize=16m -XX:+ExitOnOutOfMemoryError"
-    SPRING_UNIFIED_OPTS="-Dserver.port=${PORT} -Dserver.tomcat.threads.max=16 -Dserver.tomcat.threads.min-spare=2 -Dspring.data.redis.repositories.enabled=false -Djava.security.egd=file:/dev/./urandom -Dspring.jmx.enabled=false -Dspring.jpa.open-in-view=false"
+    SPRING_UNIFIED_OPTS="-Dserver.port=${PORT} -Dserver.tomcat.threads.max=16 -Dserver.tomcat.threads.min-spare=2 -Dspring.main.allow-bean-definition-overriding=true -Dspring.data.redis.repositories.enabled=false -Djava.security.egd=file:/dev/./urandom -Dspring.jmx.enabled=false -Dspring.jpa.open-in-view=false"
 
     java $JVM_UNIFIED $SPRING_UNIFIED_OPTS -jar /app/unified-runner.jar > /dev/stdout 2>&1 &
     PID_UNIFIED=$!

@@ -8,6 +8,8 @@ server:
     accept-count: 50
 
 spring:
+  main:
+    allow-bean-definition-overriding: true
   application:
     name: unified-runner
 
