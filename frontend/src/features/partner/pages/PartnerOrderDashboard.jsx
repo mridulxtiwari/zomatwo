@@ -78,48 +78,53 @@ export default function PartnerOrderDashboard() {
   const [rejectingOrder, setRejectingOrder] = useState(null);
   const [rejectionReason, setRejectionReason] = useState('Kitchen Overloaded');
 
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
   // Fetch real-time active orders from backend for restaurant 101
-  useEffect(() => {
-    const fetchActiveOrders = async () => {
-      try {
-        const authStorage = localStorage.getItem('zomatwo-auth-storage');
-        const token = authStorage ? JSON.parse(authStorage)?.state?.accessToken : null;
-        if (!token || token.startsWith('demo_')) {
-          // Unauthenticated or local demo preview - continue with local state
-          return;
-        }
-
-        const res = await axiosClient.get('/partner/restaurants/101/orders');
-        if (Array.isArray(res.data) && res.data.length > 0) {
-          const apiOrders = res.data.map((o) => ({
-            id: o.id,
-            orderNumber: o.orderNumber ? `ORD-${o.orderNumber.slice(0, 5)}` : `ORD-${o.id}`,
-            customerName: `Customer #${o.customerId}`,
-            phone: '+91 98234 56789',
-            items: (o.items || []).map((i) => ({
-              name: i.itemName,
-              quantity: i.quantity,
-              price: i.price,
-            })),
-            grandTotal: o.grandTotal,
-            status: o.status,
-            timeAgo: 'Just now',
-            instructions: o.deliveryInstructions || 'Leave at door',
-          }));
-
-          setOrders((prev) => {
-            const apiIds = new Set(apiOrders.map((a) => a.id));
-            const remainingLocal = prev.filter((p) => !apiIds.has(p.id));
-            return [...apiOrders, ...remainingLocal];
-          });
-        }
-      } catch (err) {
-        console.debug('Active orders backend sync skipped, continuing with local state');
+  const fetchActiveOrders = async () => {
+    try {
+      setIsRefreshing(true);
+      const authStorage = localStorage.getItem('zomatwo-auth-storage');
+      const token = authStorage ? JSON.parse(authStorage)?.state?.accessToken : null;
+      if (!token || token.startsWith('demo_')) {
+        // Unauthenticated or local demo preview - continue with local state
+        return;
       }
-    };
 
+      const res = await axiosClient.get('/partner/restaurants/101/orders');
+      if (Array.isArray(res.data) && res.data.length > 0) {
+        const apiOrders = res.data.map((o) => ({
+          id: o.id,
+          orderNumber: o.orderNumber ? `ORD-${o.orderNumber.slice(0, 5)}` : `ORD-${o.id}`,
+          customerName: `Customer #${o.customerId}`,
+          phone: '+91 98234 56789',
+          items: (o.items || []).map((i) => ({
+            name: i.itemName,
+            quantity: i.quantity,
+            price: i.price,
+          })),
+          grandTotal: o.grandTotal,
+          status: o.status,
+          timeAgo: 'Just now',
+          instructions: o.deliveryInstructions || 'Leave at door',
+        }));
+
+        setOrders((prev) => {
+          const apiIds = new Set(apiOrders.map((a) => a.id));
+          const remainingLocal = prev.filter((p) => !apiIds.has(p.id));
+          return [...apiOrders, ...remainingLocal];
+        });
+      }
+    } catch (err) {
+      console.debug('Active orders backend sync skipped, continuing with local state');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
     fetchActiveOrders();
-    const interval = setInterval(fetchActiveOrders, 8000);
+    const interval = setInterval(fetchActiveOrders, 30000); // Relaxed to 30s for performance
     return () => clearInterval(interval);
   }, []);
 
@@ -204,11 +209,12 @@ export default function PartnerOrderDashboard() {
 
           <button
             type="button"
-            onClick={() => alert('Orders refreshed!')}
-            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 transition-colors border border-slate-700"
-            title="Refresh"
+            onClick={fetchActiveOrders}
+            disabled={isRefreshing}
+            className="p-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 transition-colors border border-slate-700 disabled:opacity-50 flex items-center justify-center"
+            title="Refresh orders now"
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-brand-400' : ''}`} />
           </button>
         </div>
       </div>
