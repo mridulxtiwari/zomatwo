@@ -1,0 +1,160 @@
+# ==============================================================
+# Distributed Microservices Blueprint for Render (Paid / Starter Plans)
+# Deploys API Gateway as a public Web Service, and all 5 downstream
+# services as Private Services communicating via Render Private Networking.
+# ==============================================================
+services:
+  # ------------------------------------------------------------
+  # React SPA Frontend (Static Site)
+  # ------------------------------------------------------------
+  - type: static
+    name: zomatwo-frontend
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://zomatwo-api-gateway.onrender.com/api/v1
+
+  # ------------------------------------------------------------
+  # 1. API Gateway (Public Web Service)
+  # ------------------------------------------------------------
+  - type: web
+    name: zomatwo-api-gateway
+    env: docker
+    dockerContext: ./backend
+    dockerfilePath: ./backend/api-gateway/Dockerfile
+    plan: starter
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: FRONTEND_URL
+        value: https://zomatwo-frontend.onrender.com
+      - key: JWT_SECRET
+        generateValue: true
+      - key: IDENTITY_SERVICE_URL
+        value: http://zomatwo-identity:8081
+      - key: CATALOG_SERVICE_URL
+        value: http://zomatwo-catalog:8082
+      - key: ORDER_SERVICE_URL
+        value: http://zomatwo-order:8083
+      - key: PAYMENT_SERVICE_URL
+        value: http://zomatwo-payment:8084
+      - key: REALTIME_SERVICE_URL
+        value: http://zomatwo-realtime:8085
+
+  # ------------------------------------------------------------
+  # 2. Identity Service (Private Service)
+  # ------------------------------------------------------------
+  - type: pserv
+    name: zomatwo-identity
+    env: docker
+    dockerContext: ./backend
+    dockerfilePath: ./backend/identity-service/Dockerfile
+    plan: starter
+    envVars:
+      - key: PORT
+        value: 8081
+      - key: JWT_SECRET
+        fromService:
+          type: web
+          name: zomatwo-api-gateway
+          envVarKey: JWT_SECRET
+      - key: DATABASE_URL
+        fromDatabase:
+          name: zomatwo-postgres
+          property: connectionString
+
+  # ------------------------------------------------------------
+  # 3. Catalog Service (Private Service)
+  # ------------------------------------------------------------
+  - type: pserv
+    name: zomatwo-catalog
+    env: docker
+    dockerContext: ./backend
+    dockerfilePath: ./backend/catalog-service/Dockerfile
+    plan: starter
+    envVars:
+      - key: PORT
+        value: 8082
+      - key: DATABASE_URL
+        fromDatabase:
+          name: zomatwo-postgres
+          property: connectionString
+
+  # ------------------------------------------------------------
+  # 4. Order Service (Private Service)
+  # ------------------------------------------------------------
+  - type: pserv
+    name: zomatwo-order
+    env: docker
+    dockerContext: ./backend
+    dockerfilePath: ./backend/order-service/Dockerfile
+    plan: starter
+    envVars:
+      - key: PORT
+        value: 8083
+      - key: CATALOG_SERVICE_URL
+        value: http://zomatwo-catalog:8082
+      - key: IDENTITY_SERVICE_URL
+        value: http://zomatwo-identity:8081
+      - key: PAYMENT_SERVICE_URL
+        value: http://zomatwo-payment:8084
+      - key: KAFKA_ENABLED
+        value: "false"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: zomatwo-postgres
+          property: connectionString
+
+  # ------------------------------------------------------------
+  # 5. Payment Service (Private Service)
+  # ------------------------------------------------------------
+  - type: pserv
+    name: zomatwo-payment
+    env: docker
+    dockerContext: ./backend
+    dockerfilePath: ./backend/payment-service/Dockerfile
+    plan: starter
+    envVars:
+      - key: PORT
+        value: 8084
+      - key: RAZORPAY_KEY_ID
+        value: rzp_test_zomatwoKey123
+      - key: RAZORPAY_KEY_SECRET
+        value: sample_secret_key_mock_razorpay_signature
+      - key: KAFKA_ENABLED
+        value: "false"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: zomatwo-postgres
+          property: connectionString
+
+  # ------------------------------------------------------------
+  # 6. Realtime Service (Private Service)
+  # ------------------------------------------------------------
+  - type: pserv
+    name: zomatwo-realtime
+    env: docker
+    dockerContext: ./backend
+    dockerfilePath: ./backend/realtime-service/Dockerfile
+    plan: starter
+    envVars:
+      - key: PORT
+        value: 8085
+      - key: KAFKA_ENABLED
+        value: "false"
+
+# --------------------------------------------------------------
+# Managed PostgreSQL Database
+# --------------------------------------------------------------
+databases:
+  - name: zomatwo-postgres
+    databaseName: zomato_db
+    user: postgres
+    plan: starter

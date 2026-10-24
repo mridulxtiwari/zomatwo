@@ -1,0 +1,61 @@
+# ==============================================================
+# Render Blueprint Specification for Zomatwo Food Delivery Platform
+# Configured for Render Free Tier:
+# - Uses 1 single Web Service for the entire backend
+# - Connects to your existing free Render PostgreSQL database
+# - Uses in-memory caching & SSE (no paid Redis needed)
+# - No Kafka broker required (zero cloud infra cost)
+# ==============================================================
+services:
+  # ------------------------------------------------------------
+  # 1. React SPA Frontend (Static Site - Free, Fast CDN, SSL)
+  # ------------------------------------------------------------
+  - type: static
+    name: zomatwo-frontend
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://zomatwo-backend.onrender.com/api/v1
+
+  # ------------------------------------------------------------
+  # 2. Backend Suite (Unified Web Service on Render Free Plan)
+  # Runs API Gateway + 5 microservices within 512MB RAM
+  # ------------------------------------------------------------
+  - type: web
+    name: zomatwo-backend
+    env: docker
+    dockerContext: .
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: FRONTEND_URL
+        value: https://zomatwo-frontend.onrender.com
+      - key: JWT_SECRET
+        value: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+      - key: DATABASE_URL
+        value: postgresql://zomatwo_user:qMFY6aD0ARMZTvkxJ8Kp5cOPK597nr0t@dpg-dbeak00ae00c73cgr9og-a/zomatwo
+      - key: DB_USERNAME
+        value: zomatwo_user
+      - key: DB_PASSWORD
+        value: qMFY6aD0ARMZTvkxJ8Kp5cOPK597nr0t
+      - key: CACHE_TYPE
+        value: "simple"
+      - key: KAFKA_ENABLED
+        value: "false"
+      - key: DB_POOL_MAX
+        value: "3"
+      - key: DB_POOL_MIN
+        value: "1"
+      - key: RAZORPAY_KEY_ID
+        value: rzp_test_zomatwoKey123
+      - key: RAZORPAY_KEY_SECRET
+        value: sample_secret_key_mock_razorpay_signature
