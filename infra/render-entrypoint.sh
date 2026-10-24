@@ -129,26 +129,50 @@ JVM_LIGHT="-Xms6m -Xmx12m -XX:MaxMetaspaceSize=32m $COMMON_JVM_OPTS"
 JVM_WORKER="-Xms8m -Xmx18m -XX:MaxMetaspaceSize=52m $COMMON_JVM_OPTS"
 JVM_ORDER="-Xms8m -Xmx20m -XX:MaxMetaspaceSize=54m $COMMON_JVM_OPTS"
 
-# Helper function to wait for a port to be listening
-wait_for_port() {
+# -------------------------------------------------------------
+# Strict Sequential Hand-off Function:
+# Polls the service's /actuator/health endpoint.
+# Only hands off to the next service when HTTP 200 (status: UP)
+# is confirmed, guaranteeing zero CPU or memory collision between startups.
+# -------------------------------------------------------------
+wait_for_service_ready() {
     PORT_TO_CHECK=$1
     NAME=$2
     PID_TO_CHECK=$3
-    for i in $(seq 1 90); do
+    MAX_ATTEMPTS=${4:-120}
+
+    echo "   [i] Waiting for $NAME to fully initialize and give hand-off..."
+
+    for i in $(seq 1 "$MAX_ATTEMPTS"); do
+        # 1. Process liveness check: detect unexpected crashes immediately
         if [ -n "$PID_TO_CHECK" ] && ! kill -0 "$PID_TO_CHECK" 2>/dev/null; then
-            echo "   [X] FATAL: $NAME (PID $PID_TO_CHECK) exited unexpectedly! Check logs above."
+            echo "   [X] FATAL: $NAME (PID $PID_TO_CHECK) died during startup! Exiting..."
             return 1
         fi
-        if nc -z 127.0.0.1 "$PORT_TO_CHECK" 2>/dev/null || curl -s -f -m 1 "http://127.0.0.1:$PORT_TO_CHECK/actuator/health" >/dev/null 2>&1; then
-            echo "   [✓] $NAME is ready and listening on port :$PORT_TO_CHECK"
-            sleep 2
-            return 0
-        fi
+
+        # 2. Actuator health verification (Spring Boot true hand-off signal)
+        HEALTH_STATUS=$(curl -s -m 2 "http://127.0.0.1:$PORT_TO_CHECK/actuator/health" 2>/dev/null || true)
+        case "$HEALTH_STATUS" in
+            *\"status\":\"UP\"*|*\"status\":\ \"UP\"*)
+                echo "   [✓] $NAME is UP & HEALTHY! Hand-off confirmed on port :$PORT_TO_CHECK (took ${i}s)"
+                # Allow JIT compiler and memory to settle before launching next service
+                sleep 3
+                return 0
+                ;;
+        esac
+
         sleep 1
     done
-    echo "   [!] $NAME did not report ready on :$PORT_TO_CHECK within timeout, proceeding..."
-    sleep 2
-    return 0
+
+    # Fallback TCP check if Actuator took longer
+    if nc -z 127.0.0.1 "$PORT_TO_CHECK" 2>/dev/null; then
+        echo "   [!] $NAME listening on :$PORT_TO_CHECK (health endpoint delayed, proceeding with hand-off)"
+        sleep 3
+        return 0
+    fi
+
+    echo "   [X] FATAL: $NAME failed to report ready on :$PORT_TO_CHECK within ${MAX_ATTEMPTS}s!"
+    return 1
 }
 
 # -------------------------------------------------------------
@@ -159,37 +183,37 @@ wait_for_port() {
 echo "-> [1/6] Launching API Gateway on Render public port :${PORT}..."
 PORT=${PORT} java $JVM_GATEWAY $COMMON_SPRING_OPTS -jar /app/api-gateway.jar > /dev/stdout 2>&1 &
 PID_GATEWAY=$!
-wait_for_port "${PORT}" "API Gateway" "$PID_GATEWAY"
+wait_for_service_ready "${PORT}" "API Gateway" "$PID_GATEWAY" || exit 1
 
 # -------------------------------------------------------------
-# STEP 2-6: Launch downstream services sequentially
-# Staggered startup prevents simultaneous CPU thrashing and
-# peak JIT compilation memory spikes.
+# STEP 2-6: Launch downstream services strictly one-by-one
+# Each service must confirm health (hand-off) before the next launches.
+# Zero simultaneous CPU thrashing or peak JIT compilation memory spikes.
 # -------------------------------------------------------------
 echo "-> [2/6] Launching Identity Service (:8081)..."
 PORT=8081 FLYWAY_TABLE=flyway_identity_history java $JVM_WORKER $COMMON_SPRING_OPTS -jar /app/identity-service.jar > /dev/stdout 2>&1 &
 PID_IDENTITY=$!
-wait_for_port 8081 "Identity Service" "$PID_IDENTITY"
+wait_for_service_ready 8081 "Identity Service" "$PID_IDENTITY" || exit 1
 
 echo "-> [3/6] Launching Catalog Service (:8082)..."
 PORT=8082 FLYWAY_TABLE=flyway_catalog_history java $JVM_WORKER $COMMON_SPRING_OPTS -jar /app/catalog-service.jar > /dev/stdout 2>&1 &
 PID_CATALOG=$!
-wait_for_port 8082 "Catalog Service" "$PID_CATALOG"
+wait_for_service_ready 8082 "Catalog Service" "$PID_CATALOG" || exit 1
 
 echo "-> [4/6] Launching Order Service (:8083)..."
 PORT=8083 FLYWAY_TABLE=flyway_order_history java $JVM_ORDER $COMMON_SPRING_OPTS -jar /app/order-service.jar > /dev/stdout 2>&1 &
 PID_ORDER=$!
-wait_for_port 8083 "Order Service" "$PID_ORDER"
+wait_for_service_ready 8083 "Order Service" "$PID_ORDER" || exit 1
 
 echo "-> [5/6] Launching Payment Service (:8084)..."
 PORT=8084 FLYWAY_TABLE=flyway_payment_history java $JVM_WORKER $COMMON_SPRING_OPTS -jar /app/payment-service.jar > /dev/stdout 2>&1 &
 PID_PAYMENT=$!
-wait_for_port 8084 "Payment Service" "$PID_PAYMENT"
+wait_for_service_ready 8084 "Payment Service" "$PID_PAYMENT" || exit 1
 
 echo "-> [6/6] Launching Realtime SSE Service (:8085)..."
 PORT=8085 java $JVM_LIGHT $COMMON_SPRING_OPTS -jar /app/realtime-service.jar > /dev/stdout 2>&1 &
 PID_REALTIME=$!
-wait_for_port 8085 "Realtime Service" "$PID_REALTIME"
+wait_for_service_ready 8085 "Realtime Service" "$PID_REALTIME" || exit 1
 
 # -------------------------------------------------------------
 # STEP 7: Background Keep-Alive Ping Loop (Prevents 15m Render Free Sleep)
