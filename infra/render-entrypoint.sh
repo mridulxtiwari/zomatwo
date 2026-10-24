@@ -138,9 +138,9 @@ JVM_ORDER="-Xms8m -Xmx20m -XX:MaxMetaspaceSize=54m $COMMON_JVM_OPTS"
 if [ "$RUN_MODE" = "unified" ] && [ -f /app/unified-runner.jar ]; then
     echo "=========================================================="
     echo " Launching Unified Runner (Single JVM Profile)"
-    echo " Port: :${PORT} | Memory Target: ~110MB RAM | Metaspace: 64MB"
+    echo " Port: :${PORT} | Memory Target: ~200MB RAM | Metaspace: 160MB"
     echo "=========================================================="
-    JVM_UNIFIED="-Xms48m -Xmx160m -XX:+UseSerialGC -XX:CICompilerCount=2 -Xss256k -XX:MaxMetaspaceSize=72m -XX:ReservedCodeCacheSize=24m -XX:+ExitOnOutOfMemoryError"
+    JVM_UNIFIED="-Xms64m -Xmx192m -XX:+UseSerialGC -XX:CICompilerCount=2 -Xss256k -XX:MaxMetaspaceSize=160m -XX:ReservedCodeCacheSize=32m -XX:+ExitOnOutOfMemoryError"
     SPRING_UNIFIED_OPTS="-Dserver.port=${PORT} -Dserver.tomcat.threads.max=16 -Dserver.tomcat.threads.min-spare=2 -Dspring.main.allow-bean-definition-overriding=true -Dspring.data.redis.repositories.enabled=false -Djava.security.egd=file:/dev/./urandom -Dspring.jmx.enabled=false -Dspring.jpa.open-in-view=false"
 
     TARGET_KEEP_ALIVE="${KEEP_ALIVE_URL:-$RENDER_EXTERNAL_URL}"
