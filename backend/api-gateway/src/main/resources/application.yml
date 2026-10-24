@@ -13,6 +13,7 @@ spring:
             allowedOriginPatterns:
               - "http://localhost:*"
               - "https://*.onrender.com"
+              - "https://*.vercel.app"
               - "${FRONTEND_URL:http://localhost:5173}"
             allowedMethods:
               - GET
