@@ -185,13 +185,13 @@ if [ "$RUN_MODE" = "unified" ] && [ -f /app/unified-runner.jar ]; then
     echo " Launching Unified Runner (Single JVM Profile)"
     echo " Port: :${PORT} | Memory Target: ~110MB RAM | Metaspace: 64MB"
     echo "=========================================================="
-    JVM_UNIFIED="-Xms32m -Xmx96m -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:CICompilerCount=2 -Xss256k -XX:MaxMetaspaceSize=64m -XX:ReservedCodeCacheSize=16m -XX:+ExitOnOutOfMemoryError"
+    JVM_UNIFIED="-Xms48m -Xmx160m -XX:+UseSerialGC -XX:CICompilerCount=2 -Xss256k -XX:MaxMetaspaceSize=72m -XX:ReservedCodeCacheSize=24m -XX:+ExitOnOutOfMemoryError"
     SPRING_UNIFIED_OPTS="-Dserver.port=${PORT} -Dserver.tomcat.threads.max=16 -Dserver.tomcat.threads.min-spare=2 -Dspring.main.allow-bean-definition-overriding=true -Dspring.data.redis.repositories.enabled=false -Djava.security.egd=file:/dev/./urandom -Dspring.jmx.enabled=false -Dspring.jpa.open-in-view=false"
 
     java $JVM_UNIFIED $SPRING_UNIFIED_OPTS -jar /app/unified-runner.jar > /dev/stdout 2>&1 &
     PID_UNIFIED=$!
 
-    wait_for_service_ready "${PORT}" "Unified Runner" "$PID_UNIFIED" 90 || exit 1
+    wait_for_service_ready "${PORT}" "Unified Runner" "$PID_UNIFIED" 180 || exit 1
 
     TARGET_KEEP_ALIVE="${KEEP_ALIVE_URL:-$RENDER_EXTERNAL_URL}"
     PID_KEEPALIVE=""
