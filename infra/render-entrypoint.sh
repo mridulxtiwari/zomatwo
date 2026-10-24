@@ -7,6 +7,7 @@ echo " (Optimized for Render Free Tier: 512MB RAM & 1 Shared DB)"
 echo "=========================================================="
 
 # Default single-container URLs
+export RUN_MODE="${RUN_MODE:-unified}"
 export PORT=${PORT:-8080}
 export IDENTITY_SERVICE_URL="http://127.0.0.1:8081"
 export CATALOG_SERVICE_URL="http://127.0.0.1:8082"
@@ -175,6 +176,51 @@ wait_for_service_ready() {
     return 1
 }
 
+# -------------------------------------------------------------
+# MODE 1: Unified Single JVM Profile (Default for Render Free Tier)
+# Consumes ~110-120MB total RAM (vs 340MB+ for 6 separate JVMs)
+# -------------------------------------------------------------
+if [ "$RUN_MODE" = "unified" ] && [ -f /app/unified-runner.jar ]; then
+    echo "=========================================================="
+    echo " Launching Unified Runner (Single JVM Profile)"
+    echo " Port: :${PORT} | Memory Target: ~110MB RAM | Metaspace: 64MB"
+    echo "=========================================================="
+    JVM_UNIFIED="-Xms32m -Xmx96m -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:CICompilerCount=2 -Xss256k -XX:MaxMetaspaceSize=64m -XX:ReservedCodeCacheSize=16m -XX:+ExitOnOutOfMemoryError"
+    SPRING_UNIFIED_OPTS="-Dserver.port=${PORT} -Dserver.tomcat.threads.max=16 -Dserver.tomcat.threads.min-spare=2 -Dspring.data.redis.repositories.enabled=false -Djava.security.egd=file:/dev/./urandom -Dspring.jmx.enabled=false -Dspring.jpa.open-in-view=false"
+
+    java $JVM_UNIFIED $SPRING_UNIFIED_OPTS -jar /app/unified-runner.jar > /dev/stdout 2>&1 &
+    PID_UNIFIED=$!
+
+    wait_for_service_ready "${PORT}" "Unified Runner" "$PID_UNIFIED" 90 || exit 1
+
+    TARGET_KEEP_ALIVE="${KEEP_ALIVE_URL:-$RENDER_EXTERNAL_URL}"
+    PID_KEEPALIVE=""
+    if [ -n "$TARGET_KEEP_ALIVE" ]; then
+        echo "-> Enabling automatic keep-alive self-ping for: $TARGET_KEEP_ALIVE (every 10m)"
+        (
+            while true; do
+                sleep 600
+                echo "[$(date -u +'%Y-%m-%d %H:%M:%SZ')] [Keep-Alive] Pinging $TARGET_KEEP_ALIVE to maintain active state..."
+                curl -s -f -m 15 "${TARGET_KEEP_ALIVE}/actuator/health" > /dev/null 2>&1 || true
+                if [ -n "$FRONTEND_URL" ]; then
+                    curl -s -f -m 15 "$FRONTEND_URL" > /dev/null 2>&1 || true
+                fi
+            done
+        ) &
+        PID_KEEPALIVE=$!
+    fi
+
+    trap 'kill -TERM $PID_UNIFIED $PID_KEEPALIVE 2>/dev/null' SIGINT SIGTERM
+
+    echo "=========================================================="
+    echo " Zomatwo Unified Runner is healthy & listening on port :${PORT}"
+    echo "=========================================================="
+    wait $PID_UNIFIED
+    exit $?
+fi
+
+# -------------------------------------------------------------
+# MODE 2: Distributed Multi-Process Profile (RUN_MODE=distributed)
 # -------------------------------------------------------------
 # STEP 1: Launch API Gateway FIRST!
 # Render tests $PORT immediately. Starting the Gateway first binds

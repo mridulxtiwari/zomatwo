@@ -1,0 +1,84 @@
+server:
+  port: ${PORT:8080}
+  tomcat:
+    threads:
+      max: ${TOMCAT_MAX_THREADS:16}
+      min-spare: ${TOMCAT_MIN_SPARE:2}
+    max-connections: 100
+    accept-count: 50
+
+spring:
+  application:
+    name: unified-runner
+
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:${DB_URL:jdbc:postgresql://localhost:5432/zomato_dev_db}}
+    username: ${SPRING_DATASOURCE_USERNAME:${DB_USERNAME:postgres}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DB_PASSWORD:root}}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${DB_POOL_MAX:4}
+      minimum-idle: ${DB_POOL_MIN:1}
+      idle-timeout: 300000
+      connection-timeout: 20000
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+        query.plan_cache_max_size: 16
+        generate_statistics: false
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: 0
+
+  cache:
+    type: ${CACHE_TYPE:simple}
+
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    listener:
+      auto-startup: ${KAFKA_ENABLED:false}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      acks: all
+    consumer:
+      group-id: unified-runner-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970}
+    access-token-expiration-ms: ${JWT_ACCESS_EXPIRATION_MS:900000}
+    refresh-token-expiration-ms: ${JWT_REFRESH_EXPIRATION_MS:604800000}
+  services:
+    catalog-url: ${CATALOG_SERVICE_URL:http://localhost:${PORT:8080}}
+    identity-url: ${IDENTITY_SERVICE_URL:http://localhost:${PORT:8080}}
+    payment-url: ${PAYMENT_SERVICE_URL:http://localhost:${PORT:8080}}
+  razorpay:
+    key-id: ${RAZORPAY_KEY_ID:rzp_test_zomatwoKey123}
+    key-secret: ${RAZORPAY_KEY_SECRET:sample_secret_key_mock_razorpay_signature}
+  kafka:
+    topics:
+      order-events: order-events
+      payment-events: payment-events
+  frontend-url: ${FRONTEND_URL:http://localhost:5173}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
