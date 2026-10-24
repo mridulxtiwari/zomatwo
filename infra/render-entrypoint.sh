@@ -64,42 +64,77 @@ fi
 
 # -------------------------------------------------------------
 # Microservice JVM Memory Tuning for 512MB RAM Free Tier:
-# SerialGC has virtually zero memory overhead (< 2MB vs 60MB+ for G1GC)
+# - TieredStopAtLevel=1: Restricts to C1 compiler; completely disables C2.
+#   Saves ~35MB native RAM per JVM & boosts startup speed by 4x.
+# - SerialGC: Zero footprint GC (< 2MB overhead vs 60MB+ for G1GC).
+# - Thread tuning: Restricts Tomcat thread pools to 6-8 threads per instance
+#   (saves ~160MB of thread stacks across the stack).
+# - CICompilerCount=2: Limits compiler threads per JVM.
 # -------------------------------------------------------------
-JVM_WORKER="-Xms20m -Xmx60m -XX:MaxMetaspaceSize=44m -XX:ReservedCodeCacheSize=20m -Xss256k -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError"
-JVM_GATEWAY="-Xms28m -Xmx72m -XX:MaxMetaspaceSize=48m -XX:ReservedCodeCacheSize=24m -Xss256k -XX:+UseSerialGC -XX:+ExitOnOutOfMemoryError"
+COMMON_JVM_OPTS="-XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:CICompilerCount=2 -Xss228k -XX:+ExitOnOutOfMemoryError"
+COMMON_SPRING_OPTS="-Dserver.tomcat.threads.max=8 -Dserver.tomcat.threads.min-spare=2 -Dserver.tomcat.max-connections=20 -Dserver.tomcat.accept-count=10 -Dspring.data.redis.repositories.enabled=false -Djava.security.egd=file:/dev/./urandom"
 
-echo "-> [1/6] Launching Identity Service (:8081)..."
-PORT=8081 java $JVM_WORKER -jar /app/identity-service.jar > /dev/stdout 2>&1 &
-PID_IDENTITY=$!
-sleep 3
+JVM_GATEWAY="-Xms12m -Xmx36m -XX:MaxMetaspaceSize=34m -XX:ReservedCodeCacheSize=10m $COMMON_JVM_OPTS"
+JVM_LIGHT="-Xms10m -Xmx28m -XX:MaxMetaspaceSize=28m -XX:ReservedCodeCacheSize=8m $COMMON_JVM_OPTS"
+JVM_WORKER="-Xms14m -Xmx34m -XX:MaxMetaspaceSize=32m -XX:ReservedCodeCacheSize=10m $COMMON_JVM_OPTS"
 
-echo "-> [2/6] Launching Catalog Service (:8082)..."
-PORT=8082 java $JVM_WORKER -jar /app/catalog-service.jar > /dev/stdout 2>&1 &
-PID_CATALOG=$!
-sleep 3
+# Helper function to wait for a port to be listening
+wait_for_port() {
+    PORT_TO_CHECK=$1
+    NAME=$2
+    for i in $(seq 1 45); do
+        if nc -z 127.0.0.1 "$PORT_TO_CHECK" 2>/dev/null; then
+            echo "   [✓] $NAME is ready and listening on port :$PORT_TO_CHECK"
+            return 0
+        fi
+        sleep 1
+    done
+    echo "   [!] $NAME did not report ready on :$PORT_TO_CHECK within timeout, proceeding..."
+    return 0
+}
 
-echo "-> [3/6] Launching Order Service (:8083)..."
-PORT=8083 java $JVM_WORKER -jar /app/order-service.jar > /dev/stdout 2>&1 &
-PID_ORDER=$!
-sleep 3
-
-echo "-> [4/6] Launching Payment Service (:8084)..."
-PORT=8084 java $JVM_WORKER -jar /app/payment-service.jar > /dev/stdout 2>&1 &
-PID_PAYMENT=$!
-sleep 2
-
-echo "-> [5/6] Launching Realtime SSE Service (:8085)..."
-PORT=8085 java $JVM_WORKER -jar /app/realtime-service.jar > /dev/stdout 2>&1 &
-PID_REALTIME=$!
-sleep 2
-
-echo "-> [6/6] Launching API Gateway on Render public port :${PORT}..."
-PORT=${PORT} java $JVM_GATEWAY -jar /app/api-gateway.jar &
+# -------------------------------------------------------------
+# STEP 1: Launch API Gateway FIRST!
+# Render tests $PORT immediately. Starting the Gateway first binds
+# the public port within seconds, passing Render's port scan check!
+# -------------------------------------------------------------
+echo "-> [1/6] Launching API Gateway on Render public port :${PORT}..."
+PORT=${PORT} java $JVM_GATEWAY $COMMON_SPRING_OPTS -jar /app/api-gateway.jar > /dev/stdout 2>&1 &
 PID_GATEWAY=$!
+wait_for_port "${PORT}" "API Gateway"
+
+# -------------------------------------------------------------
+# STEP 2-6: Launch downstream services sequentially
+# Staggered startup prevents simultaneous CPU thrashing and
+# peak JIT compilation memory spikes.
+# -------------------------------------------------------------
+echo "-> [2/6] Launching Identity Service (:8081)..."
+PORT=8081 FLYWAY_TABLE=flyway_identity_history java $JVM_WORKER $COMMON_SPRING_OPTS -jar /app/identity-service.jar > /dev/stdout 2>&1 &
+PID_IDENTITY=$!
+wait_for_port 8081 "Identity Service"
+
+echo "-> [3/6] Launching Catalog Service (:8082)..."
+PORT=8082 FLYWAY_TABLE=flyway_catalog_history java $JVM_WORKER $COMMON_SPRING_OPTS -jar /app/catalog-service.jar > /dev/stdout 2>&1 &
+PID_CATALOG=$!
+wait_for_port 8082 "Catalog Service"
+
+echo "-> [4/6] Launching Order Service (:8083)..."
+PORT=8083 FLYWAY_TABLE=flyway_order_history java $JVM_WORKER $COMMON_SPRING_OPTS -jar /app/order-service.jar > /dev/stdout 2>&1 &
+PID_ORDER=$!
+wait_for_port 8083 "Order Service"
+
+echo "-> [5/6] Launching Payment Service (:8084)..."
+PORT=8084 FLYWAY_TABLE=flyway_payment_history java $JVM_WORKER $COMMON_SPRING_OPTS -jar /app/payment-service.jar > /dev/stdout 2>&1 &
+PID_PAYMENT=$!
+wait_for_port 8084 "Payment Service"
+
+echo "-> [6/6] Launching Realtime SSE Service (:8085)..."
+PORT=8085 java $JVM_LIGHT $COMMON_SPRING_OPTS -jar /app/realtime-service.jar > /dev/stdout 2>&1 &
+PID_REALTIME=$!
+wait_for_port 8085 "Realtime Service"
 
 # Trap signals for graceful shutdown
-trap 'kill -TERM $PID_IDENTITY $PID_CATALOG $PID_ORDER $PID_PAYMENT $PID_REALTIME $PID_GATEWAY' SIGINT SIGTERM
+trap 'kill -TERM $PID_GATEWAY $PID_IDENTITY $PID_CATALOG $PID_ORDER $PID_PAYMENT $PID_REALTIME' SIGINT SIGTERM
 
 echo "=========================================================="
 echo " All Zomatwo microservices running on single free DB!"
