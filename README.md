@@ -163,7 +163,7 @@ Open your browser at `http://localhost:5173`.
 
 ---
 
-## 🔑 Default Seeded Credentials
+<!-- ## 🔑 Default Seeded Credentials
 
 When database migrations run, sample accounts are automatically available for testing:
 
@@ -173,7 +173,7 @@ When database migrations run, sample accounts are automatically available for te
 | **Partner (Owner)** | `chef.anand@biryaniproject.com` | `Password123!` | Kitchen Live Terminal (`/partner/orders`) |
 | **Admin** | `admin@zomatwo.com` | `Admin123!` | Full System Access |
 
----
+--- -->
 
 ## 📄 License
 This project is open-source and available under the [MIT License](LICENSE).
