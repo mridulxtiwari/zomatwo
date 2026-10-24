@@ -34,7 +34,7 @@ RUN mvn clean package -DskipTests -T 1.5C
 FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 
-RUN apk add --no-cache curl bash
+RUN apk add --no-cache curl bash postgresql-client
 
 COPY --from=builder /build/api-gateway/target/api-gateway-*.jar /app/api-gateway.jar
 COPY --from=builder /build/identity-service/target/identity-service-*.jar /app/identity-service.jar

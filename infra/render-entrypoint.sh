@@ -60,6 +60,56 @@ if [ -n "$DATABASE_URL" ]; then
     echo "  JDBC URL : $SPRING_DATASOURCE_URL"
     echo "  Username : $SPRING_DATASOURCE_USERNAME"
     echo "  Shared DB: ${DBNAME} (Flyway isolated table per service)"
+
+    # -------------------------------------------------------------
+    # Database Pre-flight Check & Auto-Repair for Shared Database:
+    # If a previous deployment baselined flyway tables prematurely at v1
+    # on an existing shared database, V1 was skipped and target tables
+    # (restaurants, coupons, etc.) were never created.
+    # We detect if the target table exists; if not, we drop the invalid
+    # flyway history table so Flyway executes V1 and V2 cleanly from baseline 0.
+    # -------------------------------------------------------------
+    if command -v psql >/dev/null 2>&1; then
+        echo "-> Running database pre-flight check..."
+        PG_HOST="${HOSTPORT%%:*}"
+        PG_PORT="${HOSTPORT##*:}"
+        [ "$PG_PORT" = "$PG_HOST" ] && PG_PORT="5432"
+
+        PGPASSWORD="$SPRING_DATASOURCE_PASSWORD" PGSSLMODE="require" psql -h "$PG_HOST" -p "$PG_PORT" -U "$SPRING_DATASOURCE_USERNAME" -d "$DBNAME" -v ON_ERROR_STOP=0 << 'EOF' 2>/dev/null || true
+DO $$
+BEGIN
+    -- 1. If restaurants table does not exist, reset catalog flyway history
+    IF NOT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'restaurants') THEN
+        DROP TABLE IF EXISTS flyway_catalog_history CASCADE;
+    END IF;
+
+    -- 2. If coupons table does not exist, reset order flyway history
+    IF NOT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'coupons') THEN
+        DROP TABLE IF EXISTS flyway_order_history CASCADE;
+    END IF;
+
+    -- 3. If payment_transactions table does not exist, reset payment flyway history
+    IF NOT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'payment_transactions') THEN
+        DROP TABLE IF EXISTS flyway_payment_history CASCADE;
+    END IF;
+
+    -- 4. Purge any failed migration rows if any remain
+    IF EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'flyway_identity_history') THEN
+        DELETE FROM flyway_identity_history WHERE success = false;
+    END IF;
+    IF EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'flyway_catalog_history') THEN
+        DELETE FROM flyway_catalog_history WHERE success = false;
+    END IF;
+    IF EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'flyway_order_history') THEN
+        DELETE FROM flyway_order_history WHERE success = false;
+    END IF;
+    IF EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'flyway_payment_history') THEN
+        DELETE FROM flyway_payment_history WHERE success = false;
+    END IF;
+END $$;
+EOF
+        echo "   [✓] Database pre-flight verified."
+    fi
 fi
 
 # -------------------------------------------------------------
@@ -72,7 +122,7 @@ fi
 # - CICompilerCount=2: Limits compiler threads per JVM.
 # -------------------------------------------------------------
 COMMON_JVM_OPTS="-XX:+UseSerialGC -XX:TieredStopAtLevel=1 -XX:CICompilerCount=2 -Xss228k -XX:ReservedCodeCacheSize=8m -XX:MaxMetaspaceSize=48m -XX:+ExitOnOutOfMemoryError"
-COMMON_SPRING_OPTS="-Dserver.tomcat.threads.max=8 -Dserver.tomcat.threads.min-spare=2 -Dserver.tomcat.max-connections=20 -Dserver.tomcat.accept-count=10 -Dspring.data.redis.repositories.enabled=false -Djava.security.egd=file:/dev/./urandom"
+COMMON_SPRING_OPTS="-Dserver.tomcat.threads.max=8 -Dserver.tomcat.threads.min-spare=2 -Dserver.tomcat.max-connections=20 -Dserver.tomcat.accept-count=10 -Dspring.data.redis.repositories.enabled=false -Djava.security.egd=file:/dev/./urandom -Dspring.flyway.baseline-version=0 -Dspring.flyway.baseline-on-migrate=true"
 
 JVM_GATEWAY="-Xms8m -Xmx20m $COMMON_JVM_OPTS"
 JVM_LIGHT="-Xms8m -Xmx20m $COMMON_JVM_OPTS"
