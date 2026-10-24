@@ -1,2 +1,0 @@
-com\zomatwo\gateway\ApiGatewayApplication.class
-com\zomatwo\gateway\filter\JwtAuthGlobalFilter.class
