@@ -132,7 +132,7 @@ JVM_WORKER="-Xms12m -Xmx26m $COMMON_JVM_OPTS"
 wait_for_port() {
     PORT_TO_CHECK=$1
     NAME=$2
-    for i in $(seq 1 50); do
+    for i in $(seq 1 90); do
         if nc -z 127.0.0.1 "$PORT_TO_CHECK" 2>/dev/null || curl -s -f -m 1 "http://127.0.0.1:$PORT_TO_CHECK/actuator/health" >/dev/null 2>&1; then
             echo "   [✓] $NAME is ready and listening on port :$PORT_TO_CHECK"
             return 0
